@@ -13,3 +13,6 @@
 
 # JetBrains .idea
 .idea/
+
+# Data files (pcaps to be analized)
+data/
