@@ -11,17 +11,17 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-type TrexPcapStat struct {
+type trexPcapStat struct {
 	timestamp time.Time
 	genre     uint8
 	latency   int64
 }
 
-func parsePcap(filename string) (stats []TrexPcapStat, err error) {
+func parsePcap(filename string) (stats []trexPcapStat, err error) {
 	var handle *pcap.Handle
-	var stat TrexPcapStat
+	var stat trexPcapStat
 	if handle, err = pcap.OpenOffline(filename); err != nil {
-		return make([]TrexPcapStat, 0), err
+		return make([]trexPcapStat, 0), err
 	}
 	fmt.Printf("Opening file %s with %s handler.\n", filename, handle.LinkType())
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
@@ -37,7 +37,7 @@ func parsePcap(filename string) (stats []TrexPcapStat, err error) {
 	return stats, nil
 }
 
-func handlePacket(packet gopacket.Packet) (stat TrexPcapStat, err error) {
+func handlePacket(packet gopacket.Packet) (stat trexPcapStat, err error) {
 	var ipLayer gopacket.Layer
 	if ipLayer = packet.Layer(layers.LayerTypeIPv4); ipLayer == nil {
 		return stat, errors.New("not an IPv4 packet")
