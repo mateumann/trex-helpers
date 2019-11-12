@@ -16,3 +16,7 @@
 
 # Data files (pcaps to be analized)
 data/
+
+# Output plots (*.png and *.svg in root directory)
+/*.png
+/*.svg
