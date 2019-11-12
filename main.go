@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/wcharczuk/go-chart/util"
+
+	"github.com/wcharczuk/go-chart"
+
 	"github.com/akamensky/argparse"
 
 	"github.com/google/gopacket"
@@ -30,18 +34,23 @@ func parsePcap(filename string, verbose bool) (stats []trexPcapStat, err error) 
 	if verbose {
 		fmt.Printf("Opening file %s with %s handler... ", filepath.Base(filename), handle.LinkType())
 	}
+	defer handle.Close()
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-	notParsedPackets := 0
+	notParsedPackets, latencyPackets := 0, 0
 	for packet := range packetSource.Packets() {
 		if stat, err = handlePacket(packet); err != nil {
 			notParsedPackets++
 		} else {
 			stats = append(stats, stat)
+			if stat.genre == 0xab {
+				latencyPackets++
+			}
 		}
 	}
 	if verbose {
-		fmt.Printf("parsing is finished, skipped %d packets.\n", notParsedPackets)
+		fmt.Printf("parsing is finished, %d latency packets, skipped %d packets.\n", latencyPackets, notParsedPackets)
 	}
+
 	return stats, nil
 }
 
@@ -64,12 +73,70 @@ func handlePacket(packet gopacket.Packet) (stat trexPcapStat, err error) {
 	return stat, nil
 }
 
-func plotChart(filename string, verbose bool, stats []trexPcapStat) (err error) {
+func plotChart(filename string, verbose bool, pcapFilename string, stats []trexPcapStat) (err error) {
 	if verbose {
-		fmt.Printf("Generating chart in %s...", filepath.Base(filename))
+		fmt.Printf("Generating chart in %s... ", filepath.Base(filename))
 	}
-	// TODO
+	graph := chart.Chart{
+		XAxis: chart.XAxis{
+			Name:  "time [ns]",
+			Ticks: statsTimestampsTicks(stats),
+		},
+		YAxis: chart.YAxis{
+			Name: "latency [µs]",
+		},
+		Series: []chart.Series{
+			chart.TimeSeries{
+				//Style: chart.Style{
+				//	StrokeColor: chart.GetDefaultColor(0).WithAlpha(64),
+				//	FillColor:   chart.GetDefaultColor(0).WithAlpha(64),
+				//},
+				//XValues: []float64{1.0, 2.0, 3.0, 4.0, 5.0},
+				XValues: statsTimestamps(stats),
+				//YValues: []float64{2.2, 2.0, 3.0, 4.0, 3.8},
+				YValues: statsLatencies(stats),
+			},
+		},
+	}
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	if err = graph.Render(chart.SVG, f); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if verbose {
+		fmt.Printf("done.\n")
+	}
 	return nil
+}
+
+func statsTimestamps(stats []trexPcapStat) (timestamps []time.Time) {
+	for _, stat := range stats {
+		timestamps = append(timestamps, stat.timestamp)
+	}
+	return timestamps
+}
+
+func statsTimestampsTicks(stats []trexPcapStat) (timestampTicks []chart.Tick) {
+	every := len(stats) / 10
+	for i, stat := range stats {
+		if i%every == 0 {
+			timestampTicks = append(timestampTicks,
+				chart.Tick{Value: util.Time.ToFloat64(stat.timestamp), Label: stat.timestamp.Format("%c")})
+		}
+	}
+	return timestampTicks
+}
+
+func statsLatencies(stats []trexPcapStat) (latencies []float64) {
+	for _, stat := range stats {
+		latencies = append(latencies, float64(stat.latency))
+	}
+	return latencies
 }
 
 func parseCmdArgs() (string, string, bool) {
@@ -104,7 +171,7 @@ func main() {
 	if verbose {
 		fmt.Printf("File parsed; %d packets read\n", len(packets))
 	}
-	if err = plotChart(outputFilename, verbose, packets); err != nil {
+	if err = plotChart(outputFilename, verbose, pcapFilename, packets); err != nil {
 		fmt.Printf("Unable to generate chart %s\n", outputFilename)
 		os.Exit(1)
 	}
