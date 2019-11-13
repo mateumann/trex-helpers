@@ -20,3 +20,6 @@ data/
 # Output plots (*.png and *.svg in root directory)
 /*.png
 /*.svg
+
+# Binaries
+/trex-helpers

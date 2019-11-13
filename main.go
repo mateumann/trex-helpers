@@ -4,13 +4,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image/color"
 	"math"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/wcharczuk/go-chart"
-	"github.com/wcharczuk/go-chart/util"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/vg"
 
 	"github.com/akamensky/argparse"
 
@@ -21,22 +23,26 @@ import (
 
 type trexPcapStat struct {
 	timestamp time.Time
+	seconds   float64
 	genre     uint8
 	latency   int64
 }
 
 func parsePcap(filename string, verbose bool) (stats []trexPcapStat, err error) {
 	var handle *pcap.Handle
-	var stat trexPcapStat
 	if handle, err = pcap.OpenOffline(filename); err != nil {
 		return make([]trexPcapStat, 0), err
 	}
 	if verbose {
-		fmt.Printf("Opening file %s with %s handler... ", filepath.Base(filename), handle.LinkType())
+		fmt.Printf("Opening file %s with %s handler... ", filepath.Base(filename),
+			handle.LinkType())
 	}
 	defer handle.Close()
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+
 	totalPackets, notParsedPackets, latencyPackets := 0, 0, 0
+	var stat trexPcapStat
+	minTimestamp := time.Unix(1<<32, 1<<32)
 	for packet := range packetSource.Packets() {
 		totalPackets++
 		if stat, err = handlePacket(packet); err != nil {
@@ -46,8 +52,16 @@ func parsePcap(filename string, verbose bool) (stats []trexPcapStat, err error) 
 			if stat.genre == 0xab {
 				latencyPackets++
 			}
+			if minTimestamp.After(stat.timestamp) {
+				minTimestamp = stat.timestamp
+			}
 		}
 	}
+
+	for i, stat := range stats {
+		stats[i].seconds = stat.timestamp.Sub(minTimestamp).Seconds()
+	}
+
 	if verbose {
 		fmt.Printf("parsing is finished: %d total pkts, skipped %d pkts, %d latency pkts.\n",
 			totalPackets, notParsedPackets, latencyPackets)
@@ -78,87 +92,71 @@ func plotChart(filename string, verbose bool, pcapFilename string, stats []trexP
 	if verbose {
 		fmt.Printf("Generating chart in %s... ", filepath.Base(filename))
 	}
-	graph := chart.Chart{
-		Background: chart.Style{
-			Padding: chart.Box{
-				Top:    50,
-				Bottom: 50,
-				Left:   50,
-				Right:  50,
-			},
-		},
-		XAxis: chart.XAxis{
-			Name:  "time [ns]",
-			Ticks: statsTimestampsTicks(stats),
-		},
-		YAxis: chart.YAxis{
-			Name: "latency [µs]",
-		},
-		Series: []chart.Series{
-			chart.TimeSeries{
-				//Style: chart.Style{
-				//	StrokeColor: chart.GetDefaultColor(0).WithAlpha(64),
-				//	FillColor:   chart.GetDefaultColor(0).WithAlpha(64),
-				//},
-				//XValues: []float64{1.0, 2.0, 3.0, 4.0, 5.0},
-				XValues: statsTimestamps(stats),
-				//YValues: []float64{2.2, 2.0, 3.0, 4.0, 3.8},
-				YValues: statsLatencies(stats),
-			},
-		},
-	}
-	f, err := os.Create(filename)
+
+	p, err := plot.New()
 	if err != nil {
 		return err
 	}
-	if err = graph.Render(chart.SVG, f); err != nil {
-		return err
+	lMin, lMax := statsLatencyMinMax(stats)
+	p.Title.Text = fmt.Sprintf("TRex latency plot for %s (min = %d ns, max = %d ns)",
+		filepath.Base(pcapFilename), lMin, lMax)
+	p.X.Label.Text = "time [s]"
+	p.Y.Label.Text = "latency [ns]"
+	p.Add(plotter.NewGrid())
+	b, err := plotter.NewBarChart(statsLatencyValues(stats), vg.Points(1))
+	if err != nil {
+		return nil
 	}
-	if err = f.Close(); err != nil {
-		return err
+	b.LineStyle.Width = vg.Length(0)
+	b.Color = color.RGBA{R: 64, G: 128, B: 255, A: 255}
+	p.Add(b)
+	p.NominalX(statsSeconds(stats)...)
+	if err = p.Save(18*vg.Inch, 4*vg.Inch, filename); err != nil {
+		return nil
 	}
+
 	if verbose {
 		fmt.Printf("done.\n")
 	}
 	return nil
 }
 
-func statsTimestamps(stats []trexPcapStat) (timestamps []time.Time) {
+func statsLatencyValues(stats []trexPcapStat) (latencies plotter.Values) {
 	for _, stat := range stats {
-		timestamps = append(timestamps, stat.timestamp)
-	}
-	return timestamps
-}
-
-func statsTimestampsTicks(stats []trexPcapStat) (timestampTicks []chart.Tick) {
-	minTimestamp := minStatsTimestamp(stats)
-	every := len(stats) / 4
-	for i, stat := range stats {
-		if i%every == 0 {
-			nanoseconds := stat.timestamp.Sub(minTimestamp)
-			fmt.Printf("Nanoseconds = %s\n", nanoseconds.String())
-			timestampTicks = append(timestampTicks,
-				chart.Tick{Value: util.Time.ToFloat64(stat.timestamp), Label: nanoseconds.String()})
+		if stat.genre == 0xab {
+			latencies = append(latencies, float64(stat.latency))
 		}
-	}
-	return timestampTicks
-}
-
-func minStatsTimestamp(stats []trexPcapStat) (minTimestamp time.Time) {
-	minTimestamp = time.Unix(math.MaxInt32, math.MaxInt32)
-	for _, stat := range stats {
-		if minTimestamp.After(stat.timestamp) {
-			minTimestamp = stat.timestamp
-		}
-	}
-	return minTimestamp
-}
-
-func statsLatencies(stats []trexPcapStat) (latencies []float64) {
-	for _, stat := range stats {
-		latencies = append(latencies, float64(stat.latency))
 	}
 	return latencies
+}
+
+func statsSeconds(stats []trexPcapStat) (seconds []string) {
+	var prev trexPcapStat
+	for i, stat := range stats {
+		if stat.genre == 0xab {
+			if i == 0 || (math.Round(2.0*stat.seconds) != math.Round(2.0*prev.seconds)) {
+				seconds = append(seconds, fmt.Sprintf("%.3f", stat.seconds))
+			} else {
+				seconds = append(seconds, "")
+			}
+			prev = stat
+		}
+	}
+	return seconds
+}
+
+func statsLatencyMinMax(stats []trexPcapStat) (min int64, max int64) {
+	min = 1 << 32
+	max = -min
+	for _, stat := range stats {
+		if min > stat.latency && stat.latency > 0 {
+			min = stat.latency
+		}
+		if max < stat.latency {
+			max = stat.latency
+		}
+	}
+	return
 }
 
 func parseCmdArgs() (string, string, bool) {
