@@ -18,8 +18,8 @@
 data/
 
 # Output plots (*.png and *.svg)
-*.png
-*.svg
+output/*.png
+output/*.svg
 
 # Binaries
 /trex-helpers

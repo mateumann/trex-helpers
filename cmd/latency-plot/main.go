@@ -1,20 +1,37 @@
 package main
 
 import (
-    "fmt"
-    "os"
+	"flag"
+	"fmt"
+	"os"
 
-    "path/filepath"
+	"path/filepath"
+
+	"trex-helpers/pkg/packet"
 )
 
 func main() {
-    debug := false
+	debug := false
 
-    if os.Getenv("DEBUG") != "" {
-        debug = true
-    }
+	if os.Getenv("DEBUG") != "" {
+		debug = true
+	}
 
-    if debug {
-        fmt.Printf("Running %v\n", filepath.Base(os.Args[0]))
-    }
+	inputFilenamePtr := flag.String("input", "", "Input pcap file. (Required)")
+	outputFilenamePtr := flag.String("output", "plot.svg", "Output svg chart.")
+	flag.Parse()
+
+	if *inputFilenamePtr == "" {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	if debug {
+		fmt.Printf("Running %v, analyzing %s → %s\n", filepath.Base(os.Args[0]), *inputFilenamePtr, *outputFilenamePtr)
+	}
+
+	_, err := packet.ParsePcap(*inputFilenamePtr, false)
+	if err != nil {
+		fmt.Printf("Could not parse %v file\n", *inputFilenamePtr)
+	}
 }

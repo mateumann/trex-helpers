@@ -1,17 +1,22 @@
-
+# Ensure GOBIN is not set during build so that latplot is installed to the correct path
 unexport GOBIN
-GO           ?= go
-GOFMT        ?= $(GO)fmt
-FIRST_GOPATH := $(firstword $(subst :, ,$(shell $(GO) env GOPATH)))
-GOLANGCI_LINT :=
+GO                 ?= go
+GOFMT              ?= $(GO)fmt
+FIRST_GOPATH       := $(firstword $(subst :, ,$(shell $(GO) env GOPATH)))
+LATPLOT_BIN        := ~/.local/bin/latplot
+LATPLOT_VERSION    ?= 0.0.1
+GOLANGCI_LINT      :=
 GOLANGCI_LINT_OPTS ?=
 ifeq ($(GOHOSTOS),$(filter $(GOHOSTOS),linux darwin))
 ifeq ($(GOHOSTARCH),$(filter $(GOHOSTARCH),amd64 i386))
 	GOLANGCI_LINT := $(shell which golangci-lint)
 endif
 endif
+
+
 .PHONY: common-all
-common-all: precheck style check_license lint unused build test
+#common-all: precheck style check_license lint unused build test
+common-all: common-lint test build
 
 .PHONY: common-lint
 common-lint: #$(GOLANGCI_LINT)
@@ -27,10 +32,26 @@ else
 endif
 endif
 
-#ifdef GOLANGCI_LINT
-#$(GOLANGCI_LINT):
+PREFIX             ?= $(shell pwd)
+
+.PHONY: test
+test:
+	@echo ">> building latplot binaries"
+	GO111MODULE=$(GO111MODULE) go test ./...
+
+.PHONY: build
+#build: assets common-build
+build: latplot
+	@echo ">> building latplot binaries"
+	GO111MODULE=$(GO111MODULE) go build -o $(LATPLOT_BIN) cmd/latency-plot/main.go
+
+.PHONY: latplot
+latplot: $(LATPLOT)
+
+$(LATPLOT):
+
+#	$(eval LATPLOT_TMP := $(shell mktemp -d))
+#	curl -s -L $(LATPLOT_URL) | tar -xvzf - -C $(PROMU_TMP)
 #	mkdir -p $(FIRST_GOPATH)/bin
-#	curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_LINT_VERSION)/install.sh \
-#		| sed -e '/install -d/d' \
-#		| sh -s -- -b $(FIRST_GOPATH)/bin $(GOLANGCI_LINT_VERSION)
-#endif
+#	cp $(PROMU_TMP)/promu-$(PROMU_VERSION).$(GO_BUILD_PLATFORM)/promu $(FIRST_GOPATH)/bin/promu
+#	rm -r $(PROMU_TMP)
