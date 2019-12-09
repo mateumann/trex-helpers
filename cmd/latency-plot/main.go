@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"trex-helpers/pkg/plot"
 
 	"path/filepath"
 
@@ -18,7 +19,7 @@ func main() {
 	}
 
 	inputFilenamePtr := flag.String("input", "", "Input pcap file. (Required)")
-	outputFilenamePtr := flag.String("output", "plot.svg", "Output svg chart.")
+	outputFilenamePtr := flag.String("output", "plot.pdf", "Output a chart.")
 	flag.Parse()
 
 	if *inputFilenamePtr == "" {
@@ -30,8 +31,12 @@ func main() {
 		fmt.Printf("Running %v, analyzing %s → %s\n", filepath.Base(os.Args[0]), *inputFilenamePtr, *outputFilenamePtr)
 	}
 
-	_, err := packet.ParsePcap(*inputFilenamePtr, debug)
+	packets, err := packet.ParsePcap(*inputFilenamePtr, debug)
 	if err != nil {
-		fmt.Printf("Could not parse %v file\n", *inputFilenamePtr)
+		fmt.Printf("Could not parse %v file: %v\n", *inputFilenamePtr, err)
+	}
+
+	if err = plot.SavePDF(packets, filepath.Base(*inputFilenamePtr), *outputFilenamePtr, debug); err != nil {
+		fmt.Printf("Could not plot %v file: %v\n", *outputFilenamePtr, err)
 	}
 }

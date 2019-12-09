@@ -17,8 +17,9 @@
 # Data files (pcaps to be analized)
 data/
 
-# Output plots (*.png and *.svg)
+# Output plots (*.png, *.pdf and *.svg)
 output/*.png
+output/*.pdf
 output/*.svg
 
 # Binaries
