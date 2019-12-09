@@ -30,7 +30,7 @@ func main() {
 		fmt.Printf("Running %v, analyzing %s → %s\n", filepath.Base(os.Args[0]), *inputFilenamePtr, *outputFilenamePtr)
 	}
 
-	_, err := packet.ParsePcap(*inputFilenamePtr, false)
+	_, err := packet.ParsePcap(*inputFilenamePtr, debug)
 	if err != nil {
 		fmt.Printf("Could not parse %v file\n", *inputFilenamePtr)
 	}

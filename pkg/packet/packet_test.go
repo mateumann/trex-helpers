@@ -11,10 +11,6 @@ func TestParsePcap(t *testing.T) {
 		filename string
 		verbose  bool
 	}
-	ts := TRexLatencyStat{time.Date(2019, 12, 05, 14, 17, 48, 959001355, time.UTC),
-		time.Date(2019, 12, 05, 14, 17, 48, 958758290, time.UTC),
-		0, 243065}
-
 	tests := []struct {
 		name      string
 		args      args
@@ -22,7 +18,20 @@ func TestParsePcap(t *testing.T) {
 		wantErr   bool
 	}{
 		{"Return error for empty file", args{"", false}, nil, true},
-		{"Single latency packet", args{"../../tests/001-one-latency-pkt.pcap", false}, []TRexLatencyStat{ts}, false},
+
+		{"Single latency packet", args{"../../tests/001-one-latency-pkt.pcap", false},
+			[]TRexLatencyStat{
+				{time.Date(2019, 12, 05, 15, 17, 48, 959001355, time.Local).UTC(),
+					50, 243065},
+			}, false},
+
+		{"Mixed twenty packets", args{"../../tests/002-mixed-twenty-ptp-latency-other.pcap", false},
+			[]TRexLatencyStat{
+				{time.Date(2019, 12, 9, 9, 4, 7, 213015280, time.Local).UTC(),
+					0x50, -10509},
+				{time.Date(2019, 12, 9, 9, 4, 7, 262985012, time.Local).UTC(),
+					0x51, -15250},
+			}, false},
 	}
 
 	for _, tt := range tests {
@@ -39,29 +48,3 @@ func TestParsePcap(t *testing.T) {
 		})
 	}
 }
-
-//func Test_handlePacket(t *testing.T) {
-//	type args struct {
-//		packet gopacket.Packet
-//	}
-//	tests := []struct {
-//		name            string
-//		args            args
-//		wantTrexLatency trexLatencyPkt
-//		wantErr         bool
-//	}{
-//		// TODO: Add test cases.
-//	}
-//	for _, tt := range tests {
-//		t.Run(tt.name, func(t *testing.T) {
-//			gotTrexLatency, err := handlePacket(tt.args.packet)
-//			if (err != nil) != tt.wantErr {
-//				t.Errorf("handlePacket() error = %v, wantErr %v", err, tt.wantErr)
-//				return
-//			}
-//			if !reflect.DeepEqual(gotTrexLatency, tt.wantTrexLatency) {
-//				t.Errorf("handlePacket() gotTrexLatency = %v, want %v", gotTrexLatency, tt.wantTrexLatency)
-//			}
-//		})
-//	}
-//}
