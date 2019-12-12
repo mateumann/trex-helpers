@@ -60,8 +60,8 @@ func (pkt PTPPacket) Type() Type {
 }
 
 func (pkt PTPPacket) Value() float64 {
-	// kind of 0.2 µs high peak
-	return 200.0
+	// kind of 40 µs high peak
+	return 40.0
 }
 
 type OtherPacket struct {
@@ -77,6 +77,7 @@ func (pkt OtherPacket) Type() Type {
 }
 
 func (pkt OtherPacket) Value() float64 {
+	// kind of 10 µs high peak
 	return 10.0
 }
 
