@@ -37,11 +37,11 @@ func preparePdf(inputFilename string) (pdf gopdf.GoPdf, err error) {
 	pdf = gopdf.GoPdf{}
 	pdf.Start(gopdf.Config{PageSize: gopdf.Rect{W: xPaperSize, H: yPaperSize}, Unit: gopdf.Unit_PT})
 	pdf.AddPage()
-	err = pdf.AddTTFFont("DejaVuSans-Regular", "ttf/DejaVuSans.ttf")
+	err = pdf.AddTTFFont("FiraSans-Book", "/usr/share/fonts/TTF/FiraSans-Book.ttf")
 	if err != nil {
 		return
 	}
-	err = pdf.AddTTFFont("DejaVuSans-Bold", "ttf/DejaVuSans-Bold.ttf")
+	err = pdf.AddTTFFont("FiraSans-Medium", "/usr/share/fonts/TTF/FiraSans-Medium.ttf")
 	if err != nil {
 		return
 	}
@@ -59,7 +59,7 @@ func preparePdf(inputFilename string) (pdf gopdf.GoPdf, err error) {
 
 func titlePdf(pdf *gopdf.GoPdf, inputFilename string) (err error) {
 	pdf.SetTextColor(0x00, 0x00, 0x00)
-	err = pdf.SetFont("DejaVuSans-Regular", "", 18)
+	err = pdf.SetFont("FiraSans-Book", "", 18)
 	if err != nil {
 		return
 	}
@@ -69,7 +69,7 @@ func titlePdf(pdf *gopdf.GoPdf, inputFilename string) (err error) {
 	if err != nil {
 		return
 	}
-	err = pdf.SetFont("DejaVuSans-Bold", "", 18)
+	err = pdf.SetFont("FiraSans-Medium", "", 18)
 	if err != nil {
 		return
 	}
@@ -81,7 +81,7 @@ func titlePdf(pdf *gopdf.GoPdf, inputFilename string) (err error) {
 }
 
 func footnotePdf(pdf *gopdf.GoPdf) (err error) {
-	err = pdf.SetFont("DejaVuSans-Regular", "", 8)
+	err = pdf.SetFont("FiraSans-Book", "", 8)
 	if err != nil {
 		return
 	}
@@ -131,7 +131,7 @@ func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet) {
 		y := pkt.Value()
 		pdf.SetStrokeColor(pktColor(pkt))
 		xOnPaper := xPaperOffset + x*xScale
-		yOnPaper := yPaperBottom - (y-yMin)*yScale
+		yOnPaper := yPaperBottom - (y+yMin)*yScale
 		pdf.Line(xOnPaper, yPaperZero, xOnPaper, yOnPaper)
 	}
 
@@ -139,8 +139,6 @@ func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet) {
 	pdf.SetStrokeColor(0, 0, 0)
 	pdf.Line(xPaperOffset, yPaperZero, xPaperSize-20.0, yPaperZero)
 	//step := math.Pow10(int(math.Ceil(math.Log10(yMax-yMin))) - 1)
-	// TODO find numbers between yMin an yMax that would be multiplications of step
-	// TODO draw pdf.Line for those numbers (light, dashed or dotted for easier chart reading)
 }
 
 func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin float64, yMax float64) {
