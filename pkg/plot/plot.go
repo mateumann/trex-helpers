@@ -171,7 +171,7 @@ func makeAxisAnnotations(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 		return
 	}
 
-	for _, y := range horizontalSteps(plot) {
+	for _, y := range verticalSteps(plot) {
 		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
 		err = makeAnnotation(pdf, plot.xLeftMargin, yOnPaper-4, fmt.Sprintf("%v µs", y))
 		if err != nil {
@@ -179,7 +179,7 @@ func makeAxisAnnotations(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 		}
 	}
 
-	for _, x := range verticalSteps(plot) {
+	for _, x := range horizontalSteps(true, plot) {
 		xOnPaper := plot.xLeftMargin + x*plot.xScale
 		err = makeAnnotation(pdf, xOnPaper-6, plot.yZeroAt+16, fmt.Sprintf("%v s", x/1000/1000/1000))
 		if err != nil {
@@ -214,7 +214,7 @@ func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
 	pdf.Line(plot.xLeftMargin, plot.yZeroAt, plot.xPaperSize-plot.xRightMargin, plot.yZeroAt)
 
 	// X axis marks
-	for _, x := range verticalSteps(plot) {
+	for _, x := range horizontalSteps(false, plot) {
 		xOnPaper := plot.xLeftMargin + x*plot.xScale
 		pdf.Line(xOnPaper, plot.yZeroAt-4, xOnPaper, plot.yZeroAt+4)
 	}
@@ -223,7 +223,7 @@ func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
 	pdf.SetStrokeColor(0x66, 0x66, 0x66)
 	pdf.SetLineWidth(0.01)
 	pdf.SetLineType("dotted")
-	for _, y := range horizontalSteps(plot) {
+	for _, y := range verticalSteps(plot) {
 		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
 		pdf.Line(plot.xLeftMargin, yOnPaper, plot.xPaperSize-plot.xRightMargin, yOnPaper)
 	}
@@ -268,7 +268,7 @@ func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin floa
 			yMax = y
 		}
 	}
-	fmt.Printf("boundaries: x = %v .. %v, y = %v .. %v\n", xMin, xMax, yMin, yMax)
+	//fmt.Printf("boundaries: x = %v .. %v, y = %v .. %v\n", xMin, xMax, yMin, yMax)
 	return
 }
 
@@ -284,7 +284,7 @@ func pktColor(pkt packet.Packet) (r uint8, g uint8, b uint8) {
 	return 0xff, 0x00, 0x0
 }
 
-func horizontalSteps(plot *plotter) (steps []float64) {
+func verticalSteps(plot *plotter) (steps []float64) {
 	plot.yLineStep = int64(math.Pow10(int(math.Ceil(math.Log10((plot.yMax-plot.yMin)/2))) - 1))
 	lo := plot.yLineStep * (int64(plot.yMin) / plot.yLineStep)
 	hi := plot.yLineStep * (int64(plot.yMax) / plot.yLineStep)
@@ -294,8 +294,13 @@ func horizontalSteps(plot *plotter) (steps []float64) {
 	return
 }
 
-func verticalSteps(plot *plotter) (steps []float64) {
-	plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 1))
+func horizontalSteps(forAnnotations bool, plot *plotter) (steps []float64) {
+	if forAnnotations {
+		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 1))
+	} else {
+		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 2))
+	}
+	//fmt.Printf("forAnnotations = %5v, xLineStep = %v\n", forAnnotations, plot.xLineStep)
 	hi := plot.xLineStep * (plot.xMax / plot.xLineStep)
 	for x := plot.xMin + plot.xLineStep; x <= hi; x += plot.xLineStep {
 		steps = append(steps, float64(x-plot.xMin))

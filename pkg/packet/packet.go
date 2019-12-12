@@ -77,8 +77,8 @@ func (pkt OtherPacket) Type() Type {
 }
 
 func (pkt OtherPacket) Value() float64 {
-	// kind of 10 µs high peak
-	return 10.0
+	// kind of 5 µs high peak
+	return 5.0
 }
 
 func ParsePcap(filename string, verbose bool) (packets []Packet, err error) {
