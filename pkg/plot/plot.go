@@ -49,11 +49,11 @@ func (plot *plotter) fromPackets(packets []packet.Packet) {
 
 func SavePDF(packets []packet.Packet, inputFilename string, filename string, verbose bool) (err error) {
 	plot := plotter{
-		xPaperSize:    842 * 3,
+		xPaperSize:    842 * 4,
 		yPaperSize:    595,
 		xLeftMargin:   12,
 		xRightMargin:  12,
-		yTopMargin:    12,
+		yTopMargin:    24,
 		yBottomMargin: 12,
 		titlePrefix:   "TRex Packets Chart",
 		inputFilename: inputFilename,
@@ -66,17 +66,9 @@ func SavePDF(packets []packet.Packet, inputFilename string, filename string, ver
 		return
 	}
 
-	// due to some bug(?) in gopdf one cannot reliably write text on already “drawn” PDF page
+	drawPackets(&pdf, packets, &plot)
 
-	err = drawPackets(&pdf, packets, &plot)
-	if err != nil {
-		return
-	}
-
-	err = drawAxis(&pdf, &plot)
-	if err != nil {
-		return
-	}
+	drawAxis(&pdf, &plot)
 
 	f, err := os.Create(filename)
 	if err != nil {
@@ -120,11 +112,12 @@ func preparePdf(plot *plotter) (pdf gopdf.GoPdf, err error) {
 	if err != nil {
 		return
 	}
+	// due to some bug(?) in gopdf one cannot reliably write text on already “drawn” PDF page
 	err = makeAxisAnnotations(&pdf, plot)
 	if err != nil {
 		return
 	}
-	return
+	return pdf, err
 }
 
 func makeTitle(pdf *gopdf.GoPdf, inputFilename string) (err error) {
@@ -155,8 +148,6 @@ func makeFootnote(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 	if err != nil {
 		return
 	}
-	pdf.SetTextColor(0x00, 0x33, 0x99)
-
 	pdf.SetX(4)
 	pdf.SetY(plot.yPaperSize - 3)
 	err = pdf.Text(fmt.Sprintf("%v", time.Now()))
@@ -180,26 +171,26 @@ func makeAxisAnnotations(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 		return
 	}
 
-	steps := horizontalSteps(plot)
-	for n, y := range steps {
-		if (n-1 == len(steps)/2) || (n == len(steps)/2) || (n+1 == len(steps)/2) {
-			yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
-			err = makeAnnotation(pdf, plot.xLeftMargin, yOnPaper-1, fmt.Sprintf("%v µs", y))
-			if err != nil {
-				return
-			}
+	for _, y := range horizontalSteps(plot) {
+		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
+		err = makeAnnotation(pdf, plot.xLeftMargin, yOnPaper-4, fmt.Sprintf("%v µs", y))
+		if err != nil {
+			return
 		}
 	}
 
-	steps = verticalSteps(plot)
-	// TODO
+	for _, x := range verticalSteps(plot) {
+		xOnPaper := plot.xLeftMargin + x*plot.xScale
+		err = makeAnnotation(pdf, xOnPaper-6, plot.yZeroAt+16, fmt.Sprintf("%v s", x/1000/1000/1000))
+		if err != nil {
+			return
+		}
+	}
 	return nil
-
 }
 
-func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) (err error) {
-
-	// draw packets (first other, then the rest)
+func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) {
+	// first draw "other" packets, then the rest
 	pdf.SetLineWidth(plot.xScale)
 	pdf.SetLineType("solid")
 	for _, pkt := range packets {
@@ -214,25 +205,28 @@ func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) (err 
 		}
 		makeLine(pdf, pkt, plot)
 	}
-
-	return nil
 }
 
-func drawAxis(pdf *gopdf.GoPdf, plot *plotter) (err error) {
-	// draw axis
+func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
+	// main X axis
 	pdf.SetStrokeColor(0, 0, 0)
-	pdf.SetLineWidth(0.1)
+	pdf.SetLineWidth(1)
 	pdf.Line(plot.xLeftMargin, plot.yZeroAt, plot.xPaperSize-plot.xRightMargin, plot.yZeroAt)
 
+	// X axis marks
+	for _, x := range verticalSteps(plot) {
+		xOnPaper := plot.xLeftMargin + x*plot.xScale
+		pdf.Line(xOnPaper, plot.yZeroAt-4, xOnPaper, plot.yZeroAt+4)
+	}
+
+	// helper X lines
 	pdf.SetStrokeColor(0x66, 0x66, 0x66)
 	pdf.SetLineWidth(0.01)
 	pdf.SetLineType("dotted")
-	steps := horizontalSteps(plot)
-	for _, y := range steps {
+	for _, y := range horizontalSteps(plot) {
 		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
 		pdf.Line(plot.xLeftMargin, yOnPaper, plot.xPaperSize-plot.xRightMargin, yOnPaper)
 	}
-	return nil
 }
 
 func makeLine(pdf *gopdf.GoPdf, pkt packet.Packet, plot *plotter) {
@@ -274,6 +268,7 @@ func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin floa
 			yMax = y
 		}
 	}
+	fmt.Printf("boundaries: x = %v .. %v, y = %v .. %v\n", xMin, xMax, yMin, yMax)
 	return
 }
 
@@ -290,7 +285,7 @@ func pktColor(pkt packet.Packet) (r uint8, g uint8, b uint8) {
 }
 
 func horizontalSteps(plot *plotter) (steps []float64) {
-	plot.yLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(plot.yMax-plot.yMin))) - 1))
+	plot.yLineStep = int64(math.Pow10(int(math.Ceil(math.Log10((plot.yMax-plot.yMin)/2))) - 1))
 	lo := plot.yLineStep * (int64(plot.yMin) / plot.yLineStep)
 	hi := plot.yLineStep * (int64(plot.yMax) / plot.yLineStep)
 	for y := lo; y <= hi; y += plot.yLineStep {
@@ -301,11 +296,9 @@ func horizontalSteps(plot *plotter) (steps []float64) {
 
 func verticalSteps(plot *plotter) (steps []float64) {
 	plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 1))
-	lo := plot.xLineStep * (plot.xMin / plot.xLineStep)
 	hi := plot.xLineStep * (plot.xMax / plot.xLineStep)
-	for y := lo; y <= hi; y += plot.xLineStep {
-		steps = append(steps, float64(y))
+	for x := plot.xMin + plot.xLineStep; x <= hi; x += plot.xLineStep {
+		steps = append(steps, float64(x-plot.xMin))
 	}
-	fmt.Printf("vertical steps: %v\n", steps)
 	return
 }
