@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"time"
+	"trex-helpers/pkg/analytics"
 	"trex-helpers/pkg/packet"
 
 	"github.com/signintech/gopdf"
@@ -47,6 +48,37 @@ func (plot *plotter) fromPackets(packets []packet.Packet) {
 	plot.yZeroAt = plot.yPaperSize - plot.yBottomMargin + plot.yMin*plot.yScale
 }
 
+type stats struct {
+	averageLatency float64
+}
+
+func (sts *stats) fromPackets(packets []packet.Packet) {
+	sts.averageLatency = analytics.CalcAverageLatency(packets)
+}
+
+func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin float64, yMax float64) {
+	xMin, xMax = int64(1<<63-1), -int64(1<<63-1)
+	yMin, yMax = float64(xMin), float64(xMax)
+	for _, pkt := range packets {
+		x := pkt.ReceivedAt().UnixNano()
+		y := pkt.Value()
+		if x < xMin {
+			xMin = x
+		}
+		if x > xMax {
+			xMax = x
+		}
+		if y < yMin {
+			yMin = y
+		}
+		if y > yMax {
+			yMax = y
+		}
+	}
+	//fmt.Printf("boundaries: x = %v .. %v, y = %v .. %v\n", xMin, xMax, yMin, yMax)
+	return
+}
+
 func SavePDF(packets []packet.Packet, inputFilename string, filename string, verbose bool) (err error) {
 	plot := plotter{
 		xPaperSize:    842 * 4,
@@ -61,12 +93,17 @@ func SavePDF(packets []packet.Packet, inputFilename string, filename string, ver
 	}
 	plot.fromPackets(packets)
 
-	pdf, err := preparePdf(&plot)
+	stats := stats{averageLatency: 0}
+	stats.fromPackets(packets)
+
+	pdf, err := preparePdf(&plot, stats)
 	if err != nil {
 		return
 	}
 
 	drawPackets(&pdf, packets, &plot)
+
+	drawAnalytics(&pdf, stats, &plot)
 
 	drawAxis(&pdf, &plot)
 
@@ -84,7 +121,7 @@ func SavePDF(packets []packet.Packet, inputFilename string, filename string, ver
 	return nil
 }
 
-func preparePdf(plot *plotter) (pdf gopdf.GoPdf, err error) {
+func preparePdf(plot *plotter, sts stats) (pdf gopdf.GoPdf, err error) {
 	pdf = gopdf.GoPdf{}
 	pdf.Start(gopdf.Config{PageSize: gopdf.Rect{W: plot.xPaperSize, H: plot.yPaperSize}, Unit: gopdf.Unit_PT})
 	pdf.SetInfo(gopdf.PdfInfo{
@@ -117,6 +154,11 @@ func preparePdf(plot *plotter) (pdf gopdf.GoPdf, err error) {
 	if err != nil {
 		return
 	}
+	err = makeStatsAnnotations(&pdf, sts, plot)
+	if err != nil {
+		return
+	}
+
 	return pdf, err
 }
 
@@ -173,7 +215,7 @@ func makeAxisAnnotations(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 
 	for _, y := range verticalSteps(plot) {
 		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
-		err = makeAnnotation(pdf, plot.xLeftMargin, yOnPaper-4, fmt.Sprintf("%v µs", y))
+		err = makeAnnotation(pdf, plot.xLeftMargin, yOnPaper-4, 0, 0, 0, fmt.Sprintf("%v µs", y))
 		if err != nil {
 			return
 		}
@@ -181,12 +223,68 @@ func makeAxisAnnotations(pdf *gopdf.GoPdf, plot *plotter) (err error) {
 
 	for _, x := range horizontalSteps(true, plot) {
 		xOnPaper := plot.xLeftMargin + x*plot.xScale
-		err = makeAnnotation(pdf, xOnPaper-6, plot.yZeroAt+16, fmt.Sprintf("%v s", x/1000/1000/1000))
+		err = makeAnnotation(pdf, xOnPaper-6, plot.yZeroAt+16, 0, 0, 0, fmt.Sprintf("%v s", x/1000/1000/1000))
 		if err != nil {
 			return
 		}
 	}
 	return nil
+}
+
+func verticalSteps(plot *plotter) (steps []float64) {
+	plot.yLineStep = int64(math.Pow10(int(math.Ceil(math.Log10((plot.yMax-plot.yMin)/2))) - 1))
+	lo := plot.yLineStep * (int64(plot.yMin) / plot.yLineStep)
+	hi := plot.yLineStep * (int64(plot.yMax) / plot.yLineStep)
+	for y := lo; y <= hi; y += plot.yLineStep {
+		steps = append(steps, float64(y))
+	}
+	return
+}
+
+func horizontalSteps(forAnnotations bool, plot *plotter) (steps []float64) {
+	if forAnnotations {
+		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 1))
+	} else {
+		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 2))
+	}
+	//fmt.Printf("forAnnotations = %5v, xLineStep = %v\n", forAnnotations, plot.xLineStep)
+	hi := plot.xLineStep * (plot.xMax / plot.xLineStep)
+	for x := plot.xMin + plot.xLineStep; x <= hi+plot.xLineStep; x += plot.xLineStep {
+		steps = append(steps, float64(x-plot.xMin))
+	}
+	return
+}
+
+func makeAnnotation(pdf *gopdf.GoPdf, x, y float64, r, g, b uint8, text string) (err error) {
+	pdf.SetTextColor(r, g, b)
+	pdf.SetX(x)
+	pdf.SetY(y)
+	err = pdf.Text(text)
+	if err != nil {
+		return
+	}
+	return nil
+}
+func makeStatsAnnotations(pdf *gopdf.GoPdf, sts stats, plot *plotter) (err error) {
+	yOnPaper := plot.yPaperSize - plot.yBottomMargin - (sts.averageLatency-plot.yMin)*plot.yScale
+	err = pdf.SetFont("FiraSans-Book", "", 12)
+	if err != nil {
+		return err
+	}
+	err = makeAnnotation(pdf, plot.xLeftMargin+20, yOnPaper-10, 255, 64, 64,
+		fmt.Sprintf("avg. lat. %v µs", sts.averageLatency))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func drawAnalytics(pdf *gopdf.GoPdf, sts stats, plot *plotter) {
+	yOnPaper := plot.yPaperSize - plot.yBottomMargin - (sts.averageLatency-plot.yMin)*plot.yScale
+	pdf.SetStrokeColor(255, 128, 128)
+	pdf.SetLineWidth(1)
+	pdf.SetLineType("dashed")
+	pdf.Line(plot.xLeftMargin, yOnPaper, plot.xPaperSize-plot.xRightMargin, yOnPaper)
 }
 
 func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) {
@@ -205,6 +303,27 @@ func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) {
 		}
 		makeLine(pdf, pkt, plot)
 	}
+}
+
+func makeLine(pdf *gopdf.GoPdf, pkt packet.Packet, plot *plotter) {
+	x := float64(pkt.ReceivedAt().UnixNano() - plot.xMin)
+	y := pkt.Value()
+	pdf.SetStrokeColor(pktColor(pkt))
+	xOnPaper := plot.xLeftMargin + x*plot.xScale
+	yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
+	pdf.Line(xOnPaper, plot.yZeroAt, xOnPaper, yOnPaper)
+}
+
+func pktColor(pkt packet.Packet) (r uint8, g uint8, b uint8) {
+	switch pkt.Type() {
+	case packet.TypeLatency:
+		return 0xb8, 0xbb, 0x26
+	case packet.TypePTP:
+		return 0xcc, 0x24, 0x1d
+	case packet.TypeOther:
+		return 0xeb, 0xdb, 0xb2
+	}
+	return 0xff, 0x00, 0x0
 }
 
 func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
@@ -227,83 +346,4 @@ func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
 		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
 		pdf.Line(plot.xLeftMargin, yOnPaper, plot.xPaperSize-plot.xRightMargin, yOnPaper)
 	}
-}
-
-func makeLine(pdf *gopdf.GoPdf, pkt packet.Packet, plot *plotter) {
-	x := float64(pkt.ReceivedAt().UnixNano() - plot.xMin)
-	y := pkt.Value()
-	pdf.SetStrokeColor(pktColor(pkt))
-	xOnPaper := plot.xLeftMargin + x*plot.xScale
-	yOnPaper := plot.yPaperSize - plot.yBottomMargin - (y-plot.yMin)*plot.yScale
-	pdf.Line(xOnPaper, plot.yZeroAt, xOnPaper, yOnPaper)
-}
-
-func makeAnnotation(pdf *gopdf.GoPdf, x, y float64, text string) (err error) {
-	pdf.SetTextColor(0, 0, 0)
-	pdf.SetX(x)
-	pdf.SetY(y)
-	err = pdf.Text(text)
-	if err != nil {
-		return
-	}
-	return nil
-}
-
-func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin float64, yMax float64) {
-	xMin, xMax = int64(1<<63-1), -int64(1<<63-1)
-	yMin, yMax = float64(xMin), float64(xMax)
-	for _, pkt := range packets {
-		x := pkt.ReceivedAt().UnixNano()
-		y := pkt.Value()
-		if x < xMin {
-			xMin = x
-		}
-		if x > xMax {
-			xMax = x
-		}
-		if y < yMin {
-			yMin = y
-		}
-		if y > yMax {
-			yMax = y
-		}
-	}
-	//fmt.Printf("boundaries: x = %v .. %v, y = %v .. %v\n", xMin, xMax, yMin, yMax)
-	return
-}
-
-func pktColor(pkt packet.Packet) (r uint8, g uint8, b uint8) {
-	switch pkt.Type() {
-	case packet.TypeLatency:
-		return 0xb8, 0xbb, 0x26
-	case packet.TypePTP:
-		return 0xcc, 0x24, 0x1d
-	case packet.TypeOther:
-		return 0xeb, 0xdb, 0xb2
-	}
-	return 0xff, 0x00, 0x0
-}
-
-func verticalSteps(plot *plotter) (steps []float64) {
-	plot.yLineStep = int64(math.Pow10(int(math.Ceil(math.Log10((plot.yMax-plot.yMin)/2))) - 1))
-	lo := plot.yLineStep * (int64(plot.yMin) / plot.yLineStep)
-	hi := plot.yLineStep * (int64(plot.yMax) / plot.yLineStep)
-	for y := lo; y <= hi; y += plot.yLineStep {
-		steps = append(steps, float64(y))
-	}
-	return
-}
-
-func horizontalSteps(forAnnotations bool, plot *plotter) (steps []float64) {
-	if forAnnotations {
-		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 1))
-	} else {
-		plot.xLineStep = int64(math.Pow10(int(math.Ceil(math.Log10(float64(plot.xMax-plot.xMin)))) - 2))
-	}
-	//fmt.Printf("forAnnotations = %5v, xLineStep = %v\n", forAnnotations, plot.xLineStep)
-	hi := plot.xLineStep * (plot.xMax / plot.xLineStep)
-	for x := plot.xMin + plot.xLineStep; x <= hi; x += plot.xLineStep {
-		steps = append(steps, float64(x-plot.xMin))
-	}
-	return
 }
