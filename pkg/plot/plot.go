@@ -49,11 +49,13 @@ func (plot *plotter) fromPackets(packets []packet.Packet) {
 }
 
 type stats struct {
-	averageLatency float64
+	averageLatency    float64
+	periodicLatencies []analytics.PeriodicAvgLatency
 }
 
 func (sts *stats) fromPackets(packets []packet.Packet) {
-	sts.averageLatency = analytics.CalcAverageLatency(packets)
+	sts.averageLatency = analytics.CalcPositiveAverageLatency(packets)
+	sts.periodicLatencies = analytics.CalcPeriodicAverageLatency(packets)
 }
 
 func maxPacketsValue(packets []packet.Packet) (xMin int64, xMax int64, yMin float64, yMax float64) {
@@ -271,20 +273,47 @@ func makeStatsAnnotations(pdf *gopdf.GoPdf, sts stats, plot *plotter) (err error
 	if err != nil {
 		return err
 	}
-	err = makeAnnotation(pdf, plot.xLeftMargin+20, yOnPaper-10, 255, 64, 64,
-		fmt.Sprintf("avg. lat. %v µs", sts.averageLatency))
+	err = makeAnnotation(pdf, plot.xLeftMargin+20, yOnPaper-5, 0xd3, 0x86, 0x9b,
+		fmt.Sprintf("avg. lat. %.2f µs", sts.averageLatency))
 	if err != nil {
 		return err
 	}
+
+	pdf.SetStrokeColor(0xfb, 0x49, 0x34)
+	for _, periodicData := range sts.periodicLatencies {
+		x0 := float64(periodicData.StartTimestamp.UnixNano() - plot.xMin)
+		x0OnPaper := plot.xLeftMargin + x0*plot.xScale
+		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (periodicData.Value-plot.yMin)*plot.yScale
+		if periodicData.Value < 0 {
+			yOnPaper += 20
+		}
+		err = makeAnnotation(pdf, x0OnPaper+5, yOnPaper-5, 0xfb, 0x49, 0x34,
+			fmt.Sprintf("%.2f µs", periodicData.Value))
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func drawAnalytics(pdf *gopdf.GoPdf, sts stats, plot *plotter) {
 	yOnPaper := plot.yPaperSize - plot.yBottomMargin - (sts.averageLatency-plot.yMin)*plot.yScale
-	pdf.SetStrokeColor(255, 128, 128)
+	pdf.SetStrokeColor(0xd3, 0x86, 0x9b)
 	pdf.SetLineWidth(1)
 	pdf.SetLineType("dashed")
 	pdf.Line(plot.xLeftMargin, yOnPaper, plot.xPaperSize-plot.xRightMargin, yOnPaper)
+
+	//pdf.SetStrokeColor(0xd3, 0x86, 0x9b)
+	pdf.SetStrokeColor(0xfb, 0x49, 0x34)
+	for _, periodicData := range sts.periodicLatencies {
+		x0 := float64(periodicData.StartTimestamp.UnixNano() - plot.xMin)
+		x1 := float64(periodicData.EndTimestamp.UnixNano() - plot.xMin)
+		x0OnPaper := plot.xLeftMargin + x0*plot.xScale
+		x1OnPaper := plot.xLeftMargin + x1*plot.xScale
+		yOnPaper := plot.yPaperSize - plot.yBottomMargin - (periodicData.Value-plot.yMin)*plot.yScale
+		pdf.Line(x0OnPaper, yOnPaper, x1OnPaper, yOnPaper)
+	}
 }
 
 func drawPackets(pdf *gopdf.GoPdf, packets []packet.Packet, plot *plotter) {
@@ -330,6 +359,7 @@ func drawAxis(pdf *gopdf.GoPdf, plot *plotter) {
 	// main X axis
 	pdf.SetStrokeColor(0, 0, 0)
 	pdf.SetLineWidth(1)
+	pdf.SetLineType("solid")
 	pdf.Line(plot.xLeftMargin, plot.yZeroAt, plot.xPaperSize-plot.xRightMargin, plot.yZeroAt)
 
 	// X axis marks

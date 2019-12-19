@@ -61,7 +61,7 @@ func (pkt PTPPacket) Type() Type {
 
 func (pkt PTPPacket) Value() float64 {
 	// kind of 40 µs high peak
-	return 40.0
+	return float64(0x40 + pkt.messageID)
 }
 
 type OtherPacket struct {
